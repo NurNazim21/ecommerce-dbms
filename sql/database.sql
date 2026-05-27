@@ -3,7 +3,7 @@
 -- https://www.phpmyadmin.net/
 --
 -- Host: 127.0.0.1:3307
--- Generation Time: May 24, 2026 at 06:38 PM
+-- Generation Time: May 26, 2026 at 12:18 AM
 -- Server version: 10.4.32-MariaDB
 -- PHP Version: 8.2.12
 
@@ -40,8 +40,9 @@ CREATE TABLE `cart` (
 --
 
 INSERT INTO `cart` (`id`, `user_id`, `product_id`, `quantity`, `created_at`) VALUES
-(56, 8, 10, 1, '2026-05-24 13:46:58'),
-(57, 17, 12, 1, '2026-05-24 16:14:59');
+(56, 8, 10, 2, '2026-05-24 13:46:58'),
+(57, 17, 12, 1, '2026-05-24 16:14:59'),
+(58, 7, 9, 1, '2026-05-25 00:05:59');
 
 -- --------------------------------------------------------
 
@@ -89,6 +90,14 @@ CREATE TABLE `coupons` (
   `created_at` timestamp NOT NULL DEFAULT current_timestamp()
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
+--
+-- Dumping data for table `coupons`
+--
+
+INSERT INTO `coupons` (`id`, `code`, `discount_type`, `discount_value`, `min_order_amount`, `max_uses`, `used_count`, `expiry_date`, `is_active`, `created_at`) VALUES
+(2, 'E100', 'fixed', 100.00, 500.00, NULL, 0, '2026-05-25', 1, '2026-05-25 16:53:01'),
+(3, 'E20', 'percentage', 20.00, 1000.00, NULL, 0, '2026-05-27', 1, '2026-05-25 22:08:40');
+
 -- --------------------------------------------------------
 
 --
@@ -99,6 +108,8 @@ CREATE TABLE `orders` (
   `id` int(11) NOT NULL,
   `user_id` int(11) DEFAULT NULL,
   `total_amount` decimal(10,2) DEFAULT NULL,
+  `shipping_cost` decimal(10,2) NOT NULL DEFAULT 0.00,
+  `discount_amount` decimal(10,2) NOT NULL DEFAULT 0.00,
   `coupon_code` varchar(50) DEFAULT NULL,
   `status` varchar(50) DEFAULT NULL,
   `created_at` timestamp NOT NULL DEFAULT current_timestamp(),
@@ -112,23 +123,26 @@ CREATE TABLE `orders` (
 -- Dumping data for table `orders`
 --
 
-INSERT INTO `orders` (`id`, `user_id`, `total_amount`, `coupon_code`, `status`, `created_at`, `tracking_number`, `estimated_delivery`, `notes`, `seller_id`) VALUES
-(14, 6, 2100.00, NULL, 'Cancelled', '2026-05-06 05:48:20', NULL, NULL, NULL, NULL),
-(15, 7, 10.00, NULL, 'Processing', '2026-05-06 10:28:40', NULL, NULL, NULL, NULL),
-(16, 7, 500.00, NULL, 'Pending', '2026-05-12 16:15:48', NULL, NULL, NULL, NULL),
-(17, 7, 500.00, NULL, 'Pending', '2026-05-12 16:18:18', NULL, NULL, NULL, NULL),
-(18, 7, 500.00, NULL, 'Pending', '2026-05-12 16:22:54', NULL, NULL, NULL, NULL),
-(19, 7, 700.00, NULL, 'Pending', '2026-05-12 16:25:27', NULL, NULL, NULL, NULL),
-(20, 7, 500.00, NULL, 'Pending', '2026-05-12 16:29:49', NULL, NULL, NULL, NULL),
-(21, 7, 3000.00, NULL, 'Pending', '2026-05-12 16:31:34', NULL, NULL, NULL, NULL),
-(22, 7, 3000.00, NULL, 'Pending', '2026-05-12 16:33:52', NULL, NULL, NULL, NULL),
-(23, 7, 24999.00, NULL, 'Pending', '2026-05-12 16:36:34', NULL, NULL, NULL, NULL),
-(24, 7, 2700.00, 'DISCOUNT10', 'Pending', '2026-05-12 17:27:58', NULL, NULL, NULL, NULL),
-(25, 7, 13500.00, 'DISCOUNT10', 'Pending', '2026-05-12 22:06:36', NULL, NULL, NULL, NULL),
-(26, 7, 9000.00, 'DISCOUNT10', 'Pending', '2026-05-13 08:46:12', NULL, NULL, NULL, NULL),
-(27, 7, 50.00, NULL, 'Pending', '2026-05-23 06:46:00', NULL, NULL, NULL, NULL),
-(28, 7, 24999.00, NULL, 'Pending', '2026-05-23 07:22:44', NULL, NULL, NULL, NULL),
-(29, 7, 5000.00, NULL, 'Pending', '2026-05-24 06:32:18', NULL, NULL, NULL, NULL);
+INSERT INTO `orders` (`id`, `user_id`, `total_amount`, `shipping_cost`, `discount_amount`, `coupon_code`, `status`, `created_at`, `tracking_number`, `estimated_delivery`, `notes`, `seller_id`) VALUES
+(14, 6, 2100.00, 0.00, 0.00, NULL, 'Cancelled', '2026-05-06 05:48:20', NULL, NULL, NULL, NULL),
+(15, 7, 10.00, 0.00, 0.00, NULL, 'Processing', '2026-05-06 10:28:40', NULL, NULL, NULL, NULL),
+(16, 7, 500.00, 0.00, 0.00, NULL, 'Pending', '2026-05-12 16:15:48', NULL, NULL, NULL, NULL),
+(17, 7, 500.00, 0.00, 0.00, NULL, 'Pending', '2026-05-12 16:18:18', NULL, NULL, NULL, NULL),
+(18, 7, 500.00, 0.00, 0.00, NULL, 'Pending', '2026-05-12 16:22:54', NULL, NULL, NULL, NULL),
+(19, 7, 700.00, 0.00, 0.00, NULL, 'Pending', '2026-05-12 16:25:27', NULL, NULL, NULL, NULL),
+(20, 7, 500.00, 0.00, 0.00, NULL, 'Pending', '2026-05-12 16:29:49', NULL, NULL, NULL, NULL),
+(21, 7, 3000.00, 0.00, 0.00, NULL, 'Pending', '2026-05-12 16:31:34', NULL, NULL, NULL, NULL),
+(22, 7, 3000.00, 0.00, 0.00, NULL, 'Pending', '2026-05-12 16:33:52', NULL, NULL, NULL, NULL),
+(23, 7, 24999.00, 0.00, 0.00, NULL, 'Pending', '2026-05-12 16:36:34', NULL, NULL, NULL, NULL),
+(24, 7, 2700.00, 0.00, 0.00, 'DISCOUNT10', 'Pending', '2026-05-12 17:27:58', NULL, NULL, NULL, NULL),
+(25, 7, 13500.00, 0.00, 0.00, 'DISCOUNT10', 'Pending', '2026-05-12 22:06:36', NULL, NULL, NULL, NULL),
+(26, 7, 9000.00, 0.00, 0.00, 'DISCOUNT10', 'Pending', '2026-05-13 08:46:12', NULL, NULL, NULL, NULL),
+(27, 7, 50.00, 0.00, 0.00, NULL, 'Pending', '2026-05-23 06:46:00', NULL, NULL, NULL, NULL),
+(28, 7, 24999.00, 0.00, 0.00, NULL, 'Pending', '2026-05-23 07:22:44', NULL, NULL, NULL, NULL),
+(29, 7, 5000.00, 0.00, 0.00, NULL, 'Pending', '2026-05-24 06:32:18', NULL, NULL, NULL, NULL),
+(30, 7, 30060.00, 0.00, 0.00, NULL, 'Pending', '2026-05-25 00:34:04', NULL, NULL, '{\"name\":\"Nazim\",\"phone\":\"01918539046\",\"email\":\"simoneoy.77@gmail.com\",\"address\":\"North Mugdha para dhaka-1214\\r\\n128\\/A modinabaag kindergarted\",\"city\":\"Dhaka\",\"zip\":\"1214\",\"country\":\"Bangladesh\",\"method\":\"standard\",\"notes\":\"Carefully\"}', NULL),
+(31, 7, 4960.00, 60.00, 100.00, 'E100', 'Pending', '2026-05-25 17:48:10', NULL, NULL, '{\"name\":\"Nazim\",\"phone\":\"01918539046\",\"email\":\"simoneoy.77@gmail.com\",\"address\":\"North Mugdha para dhaka-1214\\r\\n128\\/A modinabaag kindergarted\",\"city\":\"Dhaka\",\"zip\":\"1214\",\"country\":\"Bangladesh\",\"method\":\"standard\",\"notes\":\"hii\"}', NULL),
+(32, 7, 26060.00, 60.00, 6500.00, 'E20', 'Pending', '2026-05-25 22:09:06', NULL, NULL, '{\"name\":\"Nazim\",\"phone\":\"01918539046\",\"email\":\"fanari.bd@gmail.com\",\"address\":\"Dhaka,Khilgaon\",\"city\":\"Dhaka\",\"zip\":\"1219\",\"country\":\"Bangladesh\",\"method\":\"standard\",\"notes\":\"carefull\"}', NULL);
 
 -- --------------------------------------------------------
 
@@ -164,7 +178,11 @@ INSERT INTO `order_items` (`id`, `order_id`, `product_id`, `quantity`, `price`) 
 (35, 26, 9, 2, 5000.00),
 (36, 27, 8, 5, 10.00),
 (37, 28, 6, 1, 24999.00),
-(38, 29, 12, 1, 5000.00);
+(38, 29, 12, 1, 5000.00),
+(39, 30, 10, 1, 30000.00),
+(40, 31, 12, 1, 5000.00),
+(41, 32, 10, 1, 30000.00),
+(42, 32, 16, 1, 2500.00);
 
 -- --------------------------------------------------------
 
@@ -199,7 +217,10 @@ INSERT INTO `payments` (`id`, `order_id`, `payment_method`, `payment_status`) VA
 (26, 26, 'Cash on Delivery', 'Pending'),
 (27, 27, 'Cash on Delivery', 'Pending'),
 (28, 28, 'Cash on Delivery', 'Pending'),
-(29, 29, 'Cash on Delivery', 'Pending');
+(29, 29, 'Cash on Delivery', 'Pending'),
+(30, 30, 'cod', 'Pending'),
+(31, 31, 'Cash on Delivery', 'Pending'),
+(32, 32, 'Cash on Delivery', 'Pending');
 
 -- --------------------------------------------------------
 
@@ -247,9 +268,10 @@ INSERT INTO `products` (`id`, `name`, `price`, `stock`, `category_id`, `image`, 
 (7, 'Stylee Ventral Arm Chair-Lime Green', 3000.00, 2, 4, 'assets/images/products/69f3c1279d044.png', 'This chair is preferred for the attractive look and comfort. Variation of color added an extra feather to the product. As it is made of 100% virgin polypropylene material, and/ combination of metal and foam ensure excellent look and comfort.', 'RFL', NULL, 'approved', NULL, '2026-05-24 16:05:14'),
 (8, 'Banana', 10.00, 15, 8, 'assets/images/products/69f9f28c74077.jpeg', 'Banana is a healthy fruit.', 'Sagor', NULL, 'approved', NULL, '2026-05-24 16:05:14'),
 (9, ' Men’s Slim Fit Suit ', 5000.00, 3, 2, 'assets/images/products/6a03abf5c19c7.jpg', 'Material: Cotton polyester blended, The Mens Suits Will Be Comfortable, Breathable, Softer, Smoother, Easier to Wash and Keep. The Shape Slim fit , simple style, basic suit suitable for everyday wear\r\nButton Closure: This mens suit with full shoulder design and slim cut with 3D draping. Slim fit suits for men are a little tighter than a regular fit suit. When you put on it makes you slimmer, sharper, look modern and handsome\r\nIt\'s suitable for multi-occasions, like wedding, daily life, business meeting, any fashion forward parties, any grandly holiday, ect. It is also prefect for young men to prepare for the Homingcming and back to school\r\nSuit is men\'s symbol. There is nothing as cool as confident. This prefect and comfortable tuxedo suit doesn\'t cost hundreds of dollars to buy. It\'s a very affordable price\r\nDry cleaning, Low iron if possible. Please reference to the“ product description” before purchasing, choose your favorite colors and style, and refer the size chart , choose according to your size', 'ILLIYEEN', NULL, 'approved', NULL, '2026-05-24 16:05:14'),
-(10, 'Delux Bed', 30000.00, 3, 4, 'assets/images/products/1779484428_6a10c70c00d5a.jpg', 'Modern bedroom cupboard designs', 'RFL', 8, 'approved', NULL, '2026-05-24 16:05:14'),
-(12, 'Lounge Chair', 5000.00, 4, 4, 'assets/images/products/1779579516_6a123a7c84965.jpg', 'Grant Featherston Contour Lounge Chair - The Grant Featherston Contour Lounge Chair by Origins by Inmod updates the classic armchair design to create a fresh, contemporary look that opens up your mood.', 'International', 8, 'approved', NULL, '2026-05-24 16:05:14'),
-(15, 'jkjk', 45.00, 53, 9, 'assets/images/no-image.png', 'fdgdhef', 'ILLIYEEN', 8, 'rejected', 'fake product', '2026-05-24 16:05:14');
+(10, 'Delux Bed', 30000.00, 1, 4, 'assets/images/products/1779484428_6a10c70c00d5a.jpg', 'Modern bedroom cupboard designs', 'RFL', 8, 'approved', NULL, '2026-05-24 16:05:14'),
+(12, 'Lounge Chair', 5000.00, 3, 4, 'assets/images/products/1779579516_6a123a7c84965.jpg', 'Grant Featherston Contour Lounge Chair - The Grant Featherston Contour Lounge Chair by Origins by Inmod updates the classic armchair design to create a fresh, contemporary look that opens up your mood.', 'International', 8, 'approved', NULL, '2026-05-24 16:05:14'),
+(15, 'jkjk', 45.00, 53, 9, 'assets/images/no-image.png', 'fdgdhef', 'ILLIYEEN', 8, 'rejected', 'fake product', '2026-05-24 16:05:14'),
+(16, 'Converse', 2500.00, 4, 9, 'assets/images/products/1779746677_6a14c775d631e.jpg', 'Nike shoes are recognized globally for their blend of performance-driven engineering and iconic streetwear styling.', 'NIKE', 15, 'approved', NULL, '2026-05-25 22:04:37');
 
 -- --------------------------------------------------------
 
@@ -329,7 +351,8 @@ INSERT INTO `product_moderation_logs` (`id`, `product_id`, `moderator_id`, `acti
 (33, NULL, 9, '', '', '2026-05-24 05:49:25'),
 (34, NULL, 9, '', '', '2026-05-24 09:38:56'),
 (35, NULL, 9, '', '', '2026-05-24 09:46:02'),
-(36, NULL, 9, '', '', '2026-05-24 09:46:38');
+(36, NULL, 9, '', '', '2026-05-24 09:46:38'),
+(37, 16, 16, 'approved', '', '2026-05-25 22:05:42');
 
 -- --------------------------------------------------------
 
@@ -477,9 +500,25 @@ INSERT INTO `users` (`id`, `name`, `email`, `password`, `role`, `created_at`, `p
 (9, 'category', 'category@gmail.com', '$2y$10$g9lWgON0hGYOWrvocRKpbunOXRfoIY4Bu5FSVhbG65Jf.zIXG/r4u', 'category_manager', '2026-05-22 19:26:19', '01301450551', NULL, 'Dhaka', NULL, NULL, NULL, NULL, NULL),
 (10, 'Moni', 'moni@gmail.com', '$2y$10$8FfZV2SRKLCN6hzCtlMKf.LWSLA0RKwsYAa.VXShVzESOcvqro3zW', 'user', '2026-05-24 00:15:13', '08060446048', NULL, '仙台市太白区', NULL, NULL, NULL, NULL, NULL),
 (14, 'Nazmul Hasan', 'najzmul12@gmail.com', '$2y$10$SczN8AKQ5Ropbs4BWBh1HOq7EHguwRoj/0a2iFxbmEeEZcdOxS6Vu', 'user', '2026-05-24 11:27:06', '+818060446048', NULL, 'Sendai', NULL, NULL, NULL, NULL, NULL),
-(15, 'Nazmul Hasan', 'najzmul1@gmail.com', '$2y$10$FX4jah2TuUfKwTrxIiyVIevlvPu7PnqpFO9cd6iSFu7TUMoOuh7pm', 'seller', '2026-05-24 11:29:37', '+818060446048', NULL, 'Sendai', 'pending', 'Komami', '2026-05-24 11:29:37', NULL, '1-4-8-306\r\nアイリスヒルズ'),
-(16, 'Nazmul Hasan', 'najzmul12145@gmail.com', '$2y$10$nbnj2lB00HAS5wWtjSgVXebah3ohM9Sr7oU9hIHhyZstVjhQSSAv2', 'category_manager', '2026-05-24 11:31:15', '+818060446048', NULL, 'Sendai', NULL, NULL, NULL, NULL, NULL),
+(15, 'Nazmul Hasan', 'najzmul1@gmail.com', '$2y$10$FX4jah2TuUfKwTrxIiyVIevlvPu7PnqpFO9cd6iSFu7TUMoOuh7pm', 'seller', '2026-05-24 11:29:37', '+818060446048', NULL, 'Sendai', 'approved', 'Komami', '2026-05-24 11:29:37', '2026-05-25 21:55:51', '1-4-8-306\r\nアイリスヒルズ'),
+(16, 'Nazmul Hasan', 'najzmul12145@gmail.com', '$2y$10$nbnj2lB00HAS5wWtjSgVXebah3ohM9Sr7oU9hIHhyZstVjhQSSAv2', 'category_manager', '2026-05-24 11:31:15', '+818060446048', NULL, 'Sendai', 'approved', NULL, NULL, '2026-05-24 17:15:18', NULL),
 (17, 'Nazmul Hasan', 'najzmul1214@gmail.com', '$2y$10$Upd2Aw8jgJkQ67sI00HH9uOtU.6Yl2hJa4/CZZi3IiF/v0vqSIrjO', 'user', '2026-05-24 16:14:24', '+818060446048', NULL, 'Sendai', NULL, NULL, NULL, NULL, NULL);
+
+-- --------------------------------------------------------
+
+--
+-- Table structure for table `vendor_orders`
+--
+
+CREATE TABLE `vendor_orders` (
+  `id` int(11) NOT NULL,
+  `parent_order_id` int(11) NOT NULL,
+  `seller_id` int(11) NOT NULL,
+  `subtotal` decimal(10,2) NOT NULL,
+  `shipping_cost` decimal(10,2) NOT NULL,
+  `status` enum('pending','processing','ready_to_ship','shipped','delivered','cancelled','returned') DEFAULT 'pending',
+  `created_at` timestamp NOT NULL DEFAULT current_timestamp()
+) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_general_ci;
 
 -- --------------------------------------------------------
 
@@ -500,7 +539,6 @@ CREATE TABLE `wishlist` (
 
 INSERT INTO `wishlist` (`id`, `user_id`, `product_id`, `created_at`) VALUES
 (41, 7, 8, '2026-05-12 22:05:35'),
-(43, 7, 9, '2026-05-23 15:18:43'),
 (44, 8, 10, '2026-05-24 13:46:50');
 
 --
@@ -634,6 +672,14 @@ ALTER TABLE `users`
   ADD UNIQUE KEY `email` (`email`);
 
 --
+-- Indexes for table `vendor_orders`
+--
+ALTER TABLE `vendor_orders`
+  ADD PRIMARY KEY (`id`),
+  ADD KEY `parent_order_id` (`parent_order_id`),
+  ADD KEY `seller_id` (`seller_id`);
+
+--
 -- Indexes for table `wishlist`
 --
 ALTER TABLE `wishlist`
@@ -649,7 +695,7 @@ ALTER TABLE `wishlist`
 -- AUTO_INCREMENT for table `cart`
 --
 ALTER TABLE `cart`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=58;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=65;
 
 --
 -- AUTO_INCREMENT for table `categories`
@@ -661,25 +707,25 @@ ALTER TABLE `categories`
 -- AUTO_INCREMENT for table `coupons`
 --
 ALTER TABLE `coupons`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=2;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=4;
 
 --
 -- AUTO_INCREMENT for table `orders`
 --
 ALTER TABLE `orders`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=30;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=33;
 
 --
 -- AUTO_INCREMENT for table `order_items`
 --
 ALTER TABLE `order_items`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=39;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=43;
 
 --
 -- AUTO_INCREMENT for table `payments`
 --
 ALTER TABLE `payments`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=30;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=33;
 
 --
 -- AUTO_INCREMENT for table `permissions`
@@ -691,13 +737,13 @@ ALTER TABLE `permissions`
 -- AUTO_INCREMENT for table `products`
 --
 ALTER TABLE `products`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=16;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=17;
 
 --
 -- AUTO_INCREMENT for table `product_moderation_logs`
 --
 ALTER TABLE `product_moderation_logs`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=37;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=38;
 
 --
 -- AUTO_INCREMENT for table `reviews`
@@ -742,10 +788,16 @@ ALTER TABLE `users`
   MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=18;
 
 --
+-- AUTO_INCREMENT for table `vendor_orders`
+--
+ALTER TABLE `vendor_orders`
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT;
+
+--
 -- AUTO_INCREMENT for table `wishlist`
 --
 ALTER TABLE `wishlist`
-  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=45;
+  MODIFY `id` int(11) NOT NULL AUTO_INCREMENT, AUTO_INCREMENT=47;
 
 --
 -- Constraints for dumped tables
@@ -830,6 +882,13 @@ ALTER TABLE `shipments`
 --
 ALTER TABLE `support_tickets`
   ADD CONSTRAINT `support_tickets_ibfk_1` FOREIGN KEY (`user_id`) REFERENCES `users` (`id`);
+
+--
+-- Constraints for table `vendor_orders`
+--
+ALTER TABLE `vendor_orders`
+  ADD CONSTRAINT `vendor_orders_ibfk_1` FOREIGN KEY (`parent_order_id`) REFERENCES `orders` (`id`),
+  ADD CONSTRAINT `vendor_orders_ibfk_2` FOREIGN KEY (`seller_id`) REFERENCES `users` (`id`);
 
 --
 -- Constraints for table `wishlist`

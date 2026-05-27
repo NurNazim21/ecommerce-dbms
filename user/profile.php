@@ -101,7 +101,7 @@ $stmt->close();
         </div>
 
         <!-- Recent Orders – shown only for non-admin users -->
-        <?php if (!$is_admin): ?>
+        <?php if ($is_regular_user): ?>
         <div class="col-lg-6">
             <div class="card shadow">
                 <div class="card-header bg-success text-white">

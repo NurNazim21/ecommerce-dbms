@@ -7,6 +7,10 @@ include("../config/db.php");   // $conn available here AND inside header.php
 
 // ── Admin check ───────────────────────────────────────────────────────────────
 $is_admin = isset($_SESSION['role']) && $_SESSION['role'] === 'admin';
+$is_regular_user = isset($_SESSION['user_id']) 
+    && !$is_admin 
+    && !(isset($_SESSION['role']) && in_array($_SESSION['role'], ['seller','category_manager']));
+
 
 // ── Filters ───────────────────────────────────────────────────────────────────
 $search      = isset($_GET['search'])    ? mysqli_real_escape_string($conn, trim($_GET['search'])) : '';
@@ -148,7 +152,7 @@ include("../includes/header.php");
                                     </small>
                                 </div>
 
-                                <?php if (!$is_admin): ?>
+                                <?php if ($is_regular_user): ?>
                                     <?php if ($row['stock'] > 0): ?>
                                         <a href="cart.php?add=<?= $row['id'] ?>"
                                            class="btn btn-primary w-100 py-2 mb-2">

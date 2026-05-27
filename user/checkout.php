@@ -21,19 +21,17 @@ if (empty($selected_ids)) {
     exit();
 }
 
-// ── Fetch only the selected cart items ───────────────────────────────────────
-// FIX: replaced the fragile call_user_func_array / reference trick with a
-//      clean helper that builds the IN (?,?,…) list safely.
+// ── Fetch selected cart items (safe IN-clause builder) ────────────────────────
 function fetch_selected_items(mysqli $conn, int $user_id, array $ids): array {
     if (empty($ids)) return [];
 
     $placeholders = implode(',', array_fill(0, count($ids), '?'));
-    $types        = 'i' . str_repeat('i', count($ids));   // first i = user_id
+    $types        = 'i' . str_repeat('i', count($ids));
     $params       = array_merge([$user_id], $ids);
 
-    $sql  = "
+    $sql = "
         SELECT c.product_id, c.quantity,
-               p.name, p.price, p.image, p.stock
+               p.name, p.price, p.image, p.stock, p.seller_id
         FROM cart c
         JOIN products p ON c.product_id = p.id
         WHERE c.user_id = ?
@@ -41,18 +39,16 @@ function fetch_selected_items(mysqli $conn, int $user_id, array $ids): array {
           AND p.status = 'approved'
         ORDER BY c.created_at DESC
     ";
+    // Note: we also fetch p.seller_id now — needed for order_items.seller_id
 
     $stmt = $conn->prepare($sql);
-
-    // PHP 8.1+ compatible: spread into bind_param via a reference array
-    $bind_params = [];
+    $bind_params   = [];
     $bind_params[] = &$types;
     foreach ($params as $k => $v) {
-        $params[$k] = $v;                 // ensure actual values, not refs to loop var
+        $params[$k]    = $v;
         $bind_params[] = &$params[$k];
     }
     call_user_func_array([$stmt, 'bind_param'], $bind_params);
-
     $stmt->execute();
     $rows = $stmt->get_result()->fetch_all(MYSQLI_ASSOC);
     $stmt->close();
@@ -73,8 +69,25 @@ if (empty($items)) {
     exit();
 }
 
+// ── NEW: Load user's saved addresses ─────────────────────────────────────────
+// Uses the new `addresses` table from the upgrade migration.
+$saved_addresses = [];
+$stmt = $conn->prepare("
+    SELECT * FROM addresses
+    WHERE user_id = ?
+    ORDER BY is_default DESC, id DESC
+");
+$stmt->bind_param("i", $user_id);
+$stmt->execute();
+$addr_result = $stmt->get_result();
+while ($a = $addr_result->fetch_assoc()) {
+    $saved_addresses[] = $a;
+}
+$stmt->close();
+
 // ── Coupon ────────────────────────────────────────────────────────────────────
 $discount       = 0;
+$coupon_row     = null;
 $coupon_code    = '';
 $coupon_error   = '';
 $coupon_success = '';
@@ -94,15 +107,31 @@ if (isset($_POST['apply_coupon']) && !empty($_POST['coupon_code'])) {
             SELECT * FROM coupons
             WHERE code = ? AND is_active = 1
               AND (expiry_date IS NULL OR expiry_date >= CURDATE())
+              AND (max_uses IS NULL OR used_count < max_uses)
         ");
         $stmt->bind_param("s", $code_input);
         $stmt->execute();
-        $coupon = $stmt->get_result()->fetch_assoc();
+        $found_coupon = $stmt->get_result()->fetch_assoc();
         $stmt->close();
 
-        if ($coupon && $subtotal >= floatval($coupon['min_order_amount'])) {
-            $_SESSION['applied_coupon'] = $code_input;
-            $coupon_success = "Coupon applied!";
+        if ($found_coupon && $subtotal >= floatval($found_coupon['min_order_amount'])) {
+            // NEW: check per-user usage limit using coupon_usage table
+            $max_per_user = intval($found_coupon['max_uses_per_user'] ?? 1);
+            $stmt = $conn->prepare("
+                SELECT COUNT(*) as cnt FROM coupon_usage
+                WHERE coupon_id = ? AND user_id = ?
+            ");
+            $stmt->bind_param("ii", $found_coupon['id'], $user_id);
+            $stmt->execute();
+            $usage_count = intval($stmt->get_result()->fetch_assoc()['cnt']);
+            $stmt->close();
+
+            if ($usage_count >= $max_per_user) {
+                $coupon_error = "You have already used this coupon the maximum number of times.";
+            } else {
+                $_SESSION['applied_coupon'] = $code_input;
+                $coupon_success = "Coupon applied!";
+            }
         } else {
             $coupon_error = "Invalid coupon or minimum order amount not met.";
         }
@@ -115,27 +144,29 @@ if (!empty($_SESSION['applied_coupon'])) {
         SELECT * FROM coupons
         WHERE code = ? AND is_active = 1
           AND (expiry_date IS NULL OR expiry_date >= CURDATE())
+          AND (max_uses IS NULL OR used_count < max_uses)
     ");
     $stmt->bind_param("s", $_SESSION['applied_coupon']);
     $stmt->execute();
-    $coupon = $stmt->get_result()->fetch_assoc();
+    $coupon_row = $stmt->get_result()->fetch_assoc();
     $stmt->close();
 
-    if ($coupon && $subtotal >= floatval($coupon['min_order_amount'])) {
+    if ($coupon_row && $subtotal >= floatval($coupon_row['min_order_amount'])) {
         $coupon_code = $_SESSION['applied_coupon'];
-        $discount    = $coupon['discount_type'] === 'percentage'
-            ? $subtotal * ($coupon['discount_value'] / 100)
-            : floatval($coupon['discount_value']);
+        $discount    = $coupon_row['discount_type'] === 'percentage'
+            ? $subtotal * ($coupon_row['discount_value'] / 100)
+            : floatval($coupon_row['discount_value']);
     } else {
         $_SESSION['applied_coupon'] = null;
+        $coupon_row = null;
     }
 }
 
 // ── Shipping options ──────────────────────────────────────────────────────────
 $shipping_options = [
-    'standard' => ['label' => 'Standard Delivery',  'days' => '5–7 business days',          'cost' => 60],
-    'express'  => ['label' => 'Express Delivery',   'days' => '2–3 business days',           'cost' => 120],
-    'same_day' => ['label' => 'Same-Day Delivery',  'days' => 'Today (order before 12 PM)',  'cost' => 200],
+    'standard' => ['label' => 'Standard Delivery',  'days' => '5–7 business days',         'cost' => 60],
+    'express'  => ['label' => 'Express Delivery',   'days' => '2–3 business days',          'cost' => 120],
+    'same_day' => ['label' => 'Same-Day Delivery',  'days' => 'Today (order before 12 PM)', 'cost' => 200],
 ];
 $shipping_method = $_POST['shipping_method'] ?? $_SESSION['shipping_method'] ?? 'standard';
 if (!array_key_exists($shipping_method, $shipping_options)) {
@@ -145,8 +176,6 @@ $_SESSION['shipping_method'] = $shipping_method;
 $shipping_cost = $shipping_options[$shipping_method]['cost'];
 
 // ── Payment methods ───────────────────────────────────────────────────────────
-// FIX: store the human-readable label in the DB, not the short key.
-//      order_details.php can then display it directly without a lookup map.
 $payment_methods = [
     'cod'   => ['label' => 'Cash on Delivery',   'icon' => '💵'],
     'bkash' => ['label' => 'bKash',               'icon' => '📱'],
@@ -158,7 +187,7 @@ $payment_key = $_POST['payment_method'] ?? 'cod';
 if (!array_key_exists($payment_key, $payment_methods)) {
     $payment_key = 'cod';
 }
-$payment_label = $payment_methods[$payment_key]['label'];  // ← stored in DB
+$payment_label = $payment_methods[$payment_key]['label'];
 
 $final_total = max(0, $subtotal - $discount) + $shipping_cost;
 
@@ -172,17 +201,23 @@ $stmt->close();
 // ── PLACE ORDER ───────────────────────────────────────────────────────────────
 if (isset($_POST['place_order'])) {
 
-    $ship_name      = trim(strip_tags($_POST['ship_name']    ?? ''));
-    $ship_phone     = trim(strip_tags($_POST['ship_phone']   ?? ''));
-    $ship_email     = trim($_POST['ship_email']              ?? '');
-    $ship_address   = trim(strip_tags($_POST['ship_address'] ?? ''));
-    $ship_city      = trim(strip_tags($_POST['ship_city']    ?? ''));
-    $ship_zip       = trim(strip_tags($_POST['ship_zip']     ?? ''));
-    $ship_country   = trim(strip_tags($_POST['ship_country'] ?? 'Bangladesh'));
-    $ship_notes     = trim(strip_tags($_POST['ship_notes']   ?? ''));
-    $payment_key    = $_POST['payment_method'] ?? 'cod';
+    $ship_name    = trim(strip_tags($_POST['ship_name']    ?? ''));
+    $ship_phone   = trim(strip_tags($_POST['ship_phone']   ?? ''));
+    $ship_email   = trim($_POST['ship_email']              ?? '');
+    $ship_address = trim(strip_tags($_POST['ship_address'] ?? ''));
+    $ship_city    = trim(strip_tags($_POST['ship_city']    ?? ''));
+    $ship_zip     = trim(strip_tags($_POST['ship_zip']     ?? ''));
+    $ship_country = trim(strip_tags($_POST['ship_country'] ?? 'Bangladesh'));
+    $ship_notes   = trim(strip_tags($_POST['ship_notes']   ?? ''));
+    $payment_key  = $_POST['payment_method'] ?? 'cod';
     if (!array_key_exists($payment_key, $payment_methods)) $payment_key = 'cod';
-    $payment_label  = $payment_methods[$payment_key]['label'];
+    $payment_label = $payment_methods[$payment_key]['label'];
+
+    // NEW: user can select a saved address by ID
+    $save_address = isset($_POST['save_address']) && $_POST['save_address'] == '1';
+    $selected_address_id = isset($_POST['selected_address_id']) && intval($_POST['selected_address_id']) > 0
+        ? intval($_POST['selected_address_id'])
+        : null;
 
     $errors = [];
     if (empty($ship_name))    $errors[] = "Full name is required.";
@@ -198,7 +233,7 @@ if (isset($_POST['place_order'])) {
         try {
             $conn->begin_transaction();
 
-            // Re-validate every item's stock + status
+            // ── Stock + status re-validation (with row lock) ──────────────
             foreach ($items as $item) {
                 $pid  = $item['product_id'];
                 $stmt = $conn->prepare("SELECT stock, status FROM products WHERE id = ? FOR UPDATE");
@@ -215,7 +250,9 @@ if (isset($_POST['place_order'])) {
                 }
             }
 
-            // Shipping snapshot stored in notes
+            // ── INSERT orders ─────────────────────────────────────────────
+            // Still keeps the JSON snapshot in `notes` for backward compatibility.
+            // Also writes to the new `order_addresses` table (structured).
             $shipping_snapshot = json_encode([
                 'name'    => $ship_name,
                 'phone'   => $ship_phone,
@@ -228,25 +265,11 @@ if (isset($_POST['place_order'])) {
                 'notes'   => $ship_notes,
             ]);
 
-            $coupon_used = !empty($coupon_code) ? $coupon_code : null;
+            $coupon_used     = !empty($coupon_code) ? $coupon_code : null;
+            $final_total_f   = (float)$final_total;
+            $shipping_cost_f = (float)$shipping_cost;
+            $discount_f      = (float)$discount;
 
-            // FIX: now also stores shipping_cost and discount_amount in the DB
-            //      so order_details.php can show a proper price breakdown.
-            //      Requires migration_add_order_columns.sql to have been run.
-            $stmt = $conn->prepare("
-                INSERT INTO orders
-                    (user_id, total_amount, shipping_cost, discount_amount,
-                     coupon_code, status, notes)
-                VALUES (?, ?, ?, ?, ?, 'Pending', ?)
-            ");
-            $stmt->bind_param("iddss s",
-                $user_id, $final_total, $shipping_cost,
-                $discount, $coupon_used, $shipping_snapshot
-            );
-            // bind_param type string without the space:
-            $stmt->close();
-
-            // Re-prepare with the correct type string (no space)
             $stmt = $conn->prepare("
                 INSERT INTO orders
                     (user_id, total_amount, shipping_cost, discount_amount,
@@ -254,26 +277,86 @@ if (isset($_POST['place_order'])) {
                 VALUES (?, ?, ?, ?, ?, 'Pending', ?)
             ");
             $stmt->bind_param("idddss",
-                $user_id, $final_total, (float)$shipping_cost,
-                (float)$discount, $coupon_used, $shipping_snapshot
+                $user_id, $final_total_f, $shipping_cost_f,
+                $discount_f, $coupon_used, $shipping_snapshot
             );
             $stmt->execute();
             $order_id = $conn->insert_id;
             $stmt->close();
 
-            // Insert order items + deduct stock
-            foreach ($items as $item) {
+           
+
+            $stmt = $conn->prepare("
+                INSERT INTO order_addresses
+                    (order_id, address_id, recipient_name, phone, email,
+                     address_line, city, zip, country, delivery_notes)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            ");
+            
+            $stmt->bind_param("iissssssss",
+                $order_id, $selected_address_id,
+                $ship_name, $ship_phone, $ship_email,
+                $ship_address, $ship_city, $ship_zip,
+                $ship_country, $ship_notes
+            );
+            $stmt->execute();
+            $stmt->close();
+
+            // ── NEW: Optionally save address to address book ──────────────
+            $new_address_id = $selected_address_id;
+            if ($save_address && $selected_address_id === null) {
                 $stmt = $conn->prepare("
-                    INSERT INTO order_items (order_id, product_id, quantity, price)
-                    VALUES (?, ?, ?, ?)
+                    INSERT INTO addresses
+                        (user_id, label, recipient_name, phone,
+                         address_line, city, zip, country, is_default)
+                    VALUES (?, 'Home', ?, ?, ?, ?, ?, 'Bangladesh', 0)
                 ");
-                $stmt->bind_param("iiid",
-                    $order_id, $item['product_id'],
-                    $item['quantity'], $item['price']
+                $stmt->bind_param("isssss",
+                    $user_id, $ship_name, $ship_phone,
+                    $ship_address, $ship_city, $ship_zip
                 );
                 $stmt->execute();
+                $new_address_id = $conn->insert_id;
                 $stmt->close();
 
+                // Update order_addresses to link the newly saved address
+                $stmt = $conn->prepare("
+                    UPDATE order_addresses SET address_id = ? WHERE order_id = ?
+                ");
+                $stmt->bind_param("ii", $new_address_id, $order_id);
+                $stmt->execute();
+                $stmt->close();
+            }
+
+            // ── INSERT order_items (now includes seller_id) ───────────────
+            foreach ($items as $item) {
+    $seller_id = $item['seller_id'] ? intval($item['seller_id']) : null;
+
+    if ($seller_id !== null) {
+        $stmt = $conn->prepare("
+            INSERT INTO order_items
+                (order_id, product_id, quantity, price, seller_id)
+            VALUES (?, ?, ?, ?, ?)
+        ");
+        $stmt->bind_param("iiidi",
+            $order_id, $item['product_id'],
+            $item['quantity'], $item['price'], $seller_id
+        );
+    } else {
+        $stmt = $conn->prepare("
+            INSERT INTO order_items
+                (order_id, product_id, quantity, price, seller_id)
+            VALUES (?, ?, ?, ?, NULL)
+        ");
+        $stmt->bind_param("iiid",
+            $order_id, $item['product_id'],
+            $item['quantity'], $item['price']
+        );
+    }
+    $stmt->execute();
+    $stmt->close();
+
+                // Deduct stock (with guard: only if stock >= qty)
                 $stmt = $conn->prepare("
                     UPDATE products SET stock = stock - ?
                     WHERE id = ? AND stock >= ?
@@ -290,16 +373,74 @@ if (isset($_POST['place_order'])) {
                 $stmt->close();
             }
 
-            // FIX: store the human-readable payment label, not the short key
+            // ── INSERT payments (full label stored, amount recorded) ──────
             $stmt = $conn->prepare("
-                INSERT INTO payments (order_id, payment_method, payment_status)
-                VALUES (?, ?, 'Pending')
+                INSERT INTO payments
+                    (order_id, payment_method, payment_status, amount, currency)
+                VALUES (?, ?, 'Pending', ?, 'BDT')
             ");
-            $stmt->bind_param("is", $order_id, $payment_label);
+            $stmt->bind_param("isd", $order_id, $payment_label, $final_total_f);
             $stmt->execute();
             $stmt->close();
 
-            // Remove checked-out items from cart
+            // ── NEW: Insert initial shipment record ───────────────────────
+            // Creates a 'pending' shipment row so admin/seller can assign courier later.
+            $stmt = $conn->prepare("
+                INSERT INTO shipments
+                    (order_id, shipping_status, destination_address)
+                VALUES (?, 'pending', ?)
+            ");
+            $dest = "$ship_address, $ship_city, $ship_zip, $ship_country";
+            $stmt->bind_param("is", $order_id, $dest);
+            $stmt->execute();
+            $stmt->close();
+
+            // ── NEW: Coupon usage tracking ────────────────────────────────
+            // Records this user's use of the coupon in coupon_usage table.
+            // Also increments the global used_count on the coupons table.
+            if (!empty($coupon_code) && $coupon_row) {
+                $stmt = $conn->prepare("
+                    INSERT INTO coupon_usage
+                        (coupon_id, user_id, order_id, discount_given)
+                    VALUES (?, ?, ?, ?)
+                ");
+                $stmt->bind_param("iiid",
+                    $coupon_row['id'], $user_id, $order_id, $discount_f
+                );
+                $stmt->execute();
+                $stmt->close();
+
+                // Increment global used_count
+                $stmt = $conn->prepare("
+                    UPDATE coupons SET used_count = used_count + 1 WHERE id = ?
+                ");
+                $stmt->bind_param("i", $coupon_row['id']);
+                $stmt->execute();
+                $stmt->close();
+            }
+
+            // ── NEW: Call stored procedure to split order by seller ───────
+            // Creates vendor_orders rows, links order_items, creates
+            // seller_transactions — all handled inside the procedure.
+            // Products without a seller_id (platform products) are skipped.
+            $conn->query("CALL sp_create_vendor_orders($order_id)");
+            
+            
+
+            // ── NEW: Send in-app notification to buyer ────────────────────
+            $stmt = $conn->prepare("
+                INSERT INTO notifications
+                    (user_id, type, title, message, link)
+                VALUES (?, 'order_placed', 'Order Placed Successfully',
+                        ?, ?)
+            ");
+            $notif_msg  = "Your order #$order_id has been placed. Total: ৳" . number_format($final_total_f);
+            $notif_link = "/user/order_details.php?id=$order_id";
+            $stmt->bind_param("iss", $user_id, $notif_msg, $notif_link);
+            $stmt->execute();
+            $stmt->close();
+
+            // ── Remove checked-out items from cart ────────────────────────
             foreach ($selected_ids as $pid) {
                 $stmt = $conn->prepare("DELETE FROM cart WHERE user_id = ? AND product_id = ?");
                 $stmt->bind_param("ii", $user_id, $pid);
@@ -307,7 +448,7 @@ if (isset($_POST['place_order'])) {
                 $stmt->close();
             }
 
-            // Clear session
+            // ── Clear session ─────────────────────────────────────────────
             $_SESSION['applied_coupon']    = null;
             $_SESSION['checkout_products'] = [];
             $_SESSION['shipping_method']   = null;
@@ -318,11 +459,11 @@ if (isset($_POST['place_order'])) {
 
         } catch (Exception $e) {
             $conn->rollback();
-            $errors[] = $e->getMessage();
+            $order_errors[] = $e->getMessage();
         }
+    } else {
+        $order_errors = $errors;
     }
-
-    $order_errors = $errors;
 }
 ?>
 <?php include("../includes/header.php"); ?>
@@ -360,6 +501,17 @@ if (isset($_POST['place_order'])) {
 .co-card { background:#fff; border-radius:var(--radius); padding:1.5rem; box-shadow:0 1px 3px rgba(0,0,0,.08); margin-bottom:1.25rem; }
 .co-card-title { font-family:'Playfair Display',serif; font-size:1.1rem; color:var(--ink); margin-bottom:1.25rem; display:flex; align-items:center; gap:.5rem; }
 
+/* Saved address cards */
+.saved-addr-list { display:flex; flex-direction:column; gap:.6rem; margin-bottom:1rem; }
+.saved-addr-option { display:flex; align-items:flex-start; gap:.75rem; padding:.85rem 1rem; border:.5px solid var(--border); border-radius:8px; cursor:pointer; transition:border-color .15s,background .15s; }
+.saved-addr-option:has(input:checked) { border-color:var(--accent); background:#f0f9ff; }
+.saved-addr-option input[type=radio] { accent-color:var(--accent); margin-top:3px; flex-shrink:0; }
+.saved-addr-label { font-size:.82rem; color:var(--ink); }
+.saved-addr-label strong { display:block; font-size:.88rem; margin-bottom:2px; }
+.addr-divider { text-align:center; font-size:.78rem; color:var(--muted); margin:.5rem 0; position:relative; }
+.addr-divider::before { content:''; position:absolute; top:50%; left:0; right:0; height:1px; background:var(--border); z-index:0; }
+.addr-divider span { background:#fff; padding:0 .75rem; position:relative; z-index:1; }
+
 /* Fields */
 .field-grid { display:grid; gap:.85rem; }
 .field-grid.cols-2 { grid-template-columns:1fr 1fr; }
@@ -378,6 +530,8 @@ if (isset($_POST['place_order'])) {
 }
 .field textarea { resize:vertical; min-height:72px; }
 .field-hint { font-size:.75rem; color:var(--muted); }
+.save-addr-check { display:flex; align-items:center; gap:.5rem; font-size:.83rem; color:var(--ink); margin-top:.25rem; cursor:pointer; }
+.save-addr-check input { accent-color:var(--accent); width:15px; height:15px; }
 
 /* Shipping pills */
 .ship-options { display:flex; flex-direction:column; gap:.6rem; }
@@ -456,21 +610,59 @@ if (isset($_POST['place_order'])) {
     <form method="POST" action="checkout.php" id="checkoutForm">
     <div class="co-grid">
 
-        <!-- LEFT COLUMN -->
+        <!-- ── LEFT COLUMN ── -->
         <div>
-            <!-- 1. Delivery information -->
+
+            <!-- 1. Delivery Information -->
             <div class="co-card">
                 <div class="co-card-title"><span>📦</span> Delivery Information</div>
-                <div class="field-grid">
+
+                <!-- NEW: Saved address selector (only shown if user has saved addresses) -->
+                <?php if (!empty($saved_addresses)): ?>
+                <div class="saved-addr-list" id="savedAddrList">
+                    <?php foreach ($saved_addresses as $sa): ?>
+                    <label class="saved-addr-option">
+                        <input type="radio" name="selected_address_id"
+                               value="<?= intval($sa['id']) ?>"
+                               onchange="fillAddress(this)"
+                               data-name="<?= htmlspecialchars($sa['recipient_name'], ENT_QUOTES) ?>"
+                               data-phone="<?= htmlspecialchars($sa['phone'], ENT_QUOTES) ?>"
+                               data-address="<?= htmlspecialchars($sa['address_line'], ENT_QUOTES) ?>"
+                               data-city="<?= htmlspecialchars($sa['city'], ENT_QUOTES) ?>"
+                               data-zip="<?= htmlspecialchars($sa['zip'] ?? '', ENT_QUOTES) ?>">
+                        <div class="saved-addr-label">
+                            <strong><?= htmlspecialchars($sa['recipient_name']) ?> — <?= htmlspecialchars($sa['label']) ?></strong>
+                            <?= htmlspecialchars($sa['address_line']) ?>,
+                            <?= htmlspecialchars($sa['city']) ?>
+                            <?php if (!empty($sa['zip'])): ?> – <?= htmlspecialchars($sa['zip']) ?><?php endif; ?>
+                            <br><small style="color:var(--muted)"><?= htmlspecialchars($sa['phone']) ?></small>
+                        </div>
+                    </label>
+                    <?php endforeach; ?>
+                    <!-- Option to enter a new address instead -->
+                    <label class="saved-addr-option">
+                        <input type="radio" name="selected_address_id"
+                               value="0" onchange="clearAddress()" checked>
+                        <div class="saved-addr-label">
+                            <strong>+ Enter a new address</strong>
+                        </div>
+                    </label>
+                </div>
+                <div class="addr-divider"><span>or fill in below</span></div>
+                <?php else: ?>
+                <input type="hidden" name="selected_address_id" value="0">
+                <?php endif; ?>
+
+                <div class="field-grid" id="addressFields">
                     <div class="field-grid cols-2">
                         <div class="field">
                             <label>Full Name <span class="req">*</span></label>
-                            <input type="text" name="ship_name" required autocomplete="name"
+                            <input type="text" name="ship_name" id="ship_name" required autocomplete="name"
                                    value="<?= htmlspecialchars($_POST['ship_name'] ?? $profile['name'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
                         </div>
                         <div class="field">
                             <label>Phone Number <span class="req">*</span></label>
-                            <input type="tel" name="ship_phone" required autocomplete="tel"
+                            <input type="tel" name="ship_phone" id="ship_phone" required autocomplete="tel"
                                    placeholder="e.g. 01XXXXXXXXX"
                                    value="<?= htmlspecialchars($_POST['ship_phone'] ?? $profile['phone'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
                         </div>
@@ -483,18 +675,18 @@ if (isset($_POST['place_order'])) {
                     </div>
                     <div class="field">
                         <label>Street Address <span class="req">*</span></label>
-                        <textarea name="ship_address" required rows="2"
+                        <textarea name="ship_address" id="ship_address" required rows="2"
                                   placeholder="House / Road / Block / Area"><?= htmlspecialchars($_POST['ship_address'] ?? $profile['address'] ?? '', ENT_QUOTES, 'UTF-8') ?></textarea>
                     </div>
                     <div class="field-grid cols-3">
                         <div class="field">
                             <label>City <span class="req">*</span></label>
-                            <input type="text" name="ship_city" required
+                            <input type="text" name="ship_city" id="ship_city" required
                                    value="<?= htmlspecialchars($_POST['ship_city'] ?? $profile['city'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
                         </div>
                         <div class="field">
                             <label>ZIP / Postal Code</label>
-                            <input type="text" name="ship_zip" placeholder="e.g. 1207"
+                            <input type="text" name="ship_zip" id="ship_zip" placeholder="e.g. 1207"
                                    value="<?= htmlspecialchars($_POST['ship_zip'] ?? '', ENT_QUOTES, 'UTF-8') ?>">
                         </div>
                         <div class="field">
@@ -515,10 +707,16 @@ if (isset($_POST['place_order'])) {
                                   placeholder="Gate code, landmark, preferred delivery time…"><?= htmlspecialchars($_POST['ship_notes'] ?? '', ENT_QUOTES, 'UTF-8') ?></textarea>
                         <span class="field-hint">Optional — helps our courier find you faster.</span>
                     </div>
+
+                    <!-- NEW: Save address to address book checkbox -->
+                    <label class="save-addr-check">
+                        <input type="checkbox" name="save_address" value="1">
+                        Save this address for future orders
+                    </label>
                 </div>
             </div>
 
-            <!-- 2. Shipping method -->
+            <!-- 2. Shipping Method -->
             <div class="co-card">
                 <div class="co-card-title"><span>🚚</span> Shipping Method</div>
                 <div class="ship-options">
@@ -537,7 +735,7 @@ if (isset($_POST['place_order'])) {
                 </div>
             </div>
 
-            <!-- 3. Payment method -->
+            <!-- 3. Payment Method -->
             <div class="co-card">
                 <div class="co-card-title"><span>💳</span> Payment Method</div>
                 <div class="pay-options">
@@ -578,9 +776,10 @@ if (isset($_POST['place_order'])) {
                 <?php endif; ?>
                 <?php endif; ?>
             </div>
-        </div>
 
-        <!-- RIGHT COLUMN: order summary -->
+        </div><!-- /left col -->
+
+        <!-- ── RIGHT COLUMN: Order Summary ── -->
         <div>
             <div class="summary-panel">
                 <div class="summary-title">Order Summary</div>
@@ -628,7 +827,23 @@ if (isset($_POST['place_order'])) {
 
     </div>
     </form>
+
 </div>
 </div>
+
+<!-- NEW: JS to auto-fill address fields when a saved address is selected -->
+<script>
+function fillAddress(radio) {
+    document.getElementById('ship_name').value    = radio.dataset.name;
+    document.getElementById('ship_phone').value   = radio.dataset.phone;
+    document.getElementById('ship_address').value = radio.dataset.address;
+    document.getElementById('ship_city').value    = radio.dataset.city;
+    document.getElementById('ship_zip').value     = radio.dataset.zip;
+}
+function clearAddress() {
+    ['ship_name','ship_phone','ship_address','ship_city','ship_zip']
+        .forEach(id => { document.getElementById(id).value = ''; });
+}
+</script>
 
 <?php include("../includes/footer.php"); ?>

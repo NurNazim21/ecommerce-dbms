@@ -13,13 +13,36 @@ if (isset($_GET['action']) && isset($_GET['id'])) {
     $action = $_GET['action'];
 
     if ($action === 'approve') {
-        $conn->query("UPDATE users SET 
-            seller_status = 'approved',
-            seller_approved_at = NOW(),
-            role = 'seller' 
-            WHERE id = $id");
-        $success = "Seller approved successfully!";
-    } 
+    $conn->query("UPDATE users SET 
+        seller_status = 'approved',
+        seller_approved_at = NOW(),
+        role = 'seller' 
+        WHERE id = $id");
+
+    // Fetch shop details to create/update seller_profiles
+    $seller_row = $conn->query("
+        SELECT shop_name, seller_address FROM users WHERE id = $id
+    ")->fetch_assoc();
+
+    $shop_name    = mysqli_real_escape_string($conn, $seller_row['shop_name'] ?? '');
+    $seller_addr  = mysqli_real_escape_string($conn, $seller_row['seller_address'] ?? '');
+    $shop_slug    = strtolower(trim(preg_replace('/[^A-Za-z0-9]+/', '-', $shop_name), '-'));
+    $shop_slug    = mysqli_real_escape_string($conn, $shop_slug . '-' . $id); // append id to ensure uniqueness
+
+    // Insert only if no profile exists yet (handles re-approvals safely)
+    $conn->query("
+        INSERT INTO seller_profiles 
+            (user_id, shop_name, shop_slug, seller_address, commission_rate, verification_status)
+        VALUES 
+            ($id, '$shop_name', '$shop_slug', '$seller_addr', 10.00, 'approved')
+        ON DUPLICATE KEY UPDATE
+            verification_status = 'approved',
+            shop_name = '$shop_name',
+            seller_address = '$seller_addr'
+    ");
+
+    $success = "Seller approved successfully!";
+}
     elseif ($action === 'reject') {
         $conn->query("UPDATE users SET seller_status = 'rejected' WHERE id = $id");
         $success = "Seller request rejected.";
@@ -31,7 +54,8 @@ $sellers = $conn->query("
     SELECT id, name, email, shop_name, seller_address, 
            seller_status, seller_request_at, phone, city 
     FROM users 
-    WHERE role = 'seller' OR seller_status IS NOT NULL 
+    WHERE role = 'seller' 
+       OR (seller_status IS NOT NULL AND shop_name IS NOT NULL)
     ORDER BY seller_request_at DESC
 ");
 ?>

@@ -13,13 +13,25 @@ if (!isset($conn)) {
 // ── Role check ────────────────────────────────────────────────────────────────
 $is_admin  = isset($_SESSION['role']) && $_SESSION['role'] === 'admin';
 $is_seller = isset($_SESSION['role']) && $_SESSION['role'] === 'seller';
+$is_category_manager = isset($_SESSION['role']) && $_SESSION['role'] === 'category_manager';
+$is_regular_user     = isset($_SESSION['user_id']) && !$is_admin && !$is_seller && !$is_category_manager;
+// ↑ Only regular users get cart/wishlist/orders
 
 // ── Cart count ────────────────────────────────────────────────────────────────
-$cart_count = 0;
+$cart_count  = 0;
+$notif_count = 0;   // UPGRADE: unread notification badge
 if (isset($_SESSION['user_id'])) {
     $user_id    = intval($_SESSION['user_id']);
+ 
     $cart_query = $conn->query("SELECT SUM(quantity) as total FROM cart WHERE user_id = $user_id");
     $cart_count = $cart_query->fetch_assoc()['total'] ?? 0;
+ 
+    // UPGRADE: unread notifications count — used for bell badge in navbar
+    $notif_q    = $conn->prepare("SELECT COUNT(*) as c FROM notifications WHERE user_id = ? AND is_read = 0");
+    $notif_q->bind_param("i", $user_id);
+    $notif_q->execute();
+    $notif_count = intval($notif_q->get_result()->fetch_assoc()['c']);
+    $notif_q->close();
 }
 
 // ── Categories from DB (Only Approved) ───────────────────────────────────────
@@ -349,6 +361,26 @@ $first_name = isset($_SESSION['name']) ? htmlspecialchars(explode(' ', $_SESSION
     </a>
 <?php endif; ?>
 
+
+ 
+<!-- ── UPGRADE: Notification bell (all logged-in users) ─────────────────── -->
+<?php if (isset($_SESSION['user_id'])): ?>
+<a href="<?= $is_admin ? '../admin/notifications.php' : ($is_seller ? '../seller/notifications.php' : '../user/notifications.php') ?>"
+   class="position-relative text-white text-decoration-none d-flex align-items-center"
+   style="padding:4px 2px;"
+   title="Notifications">
+    <i class="fas fa-bell fa-lg"></i>
+    <?php if ($notif_count > 0): ?>
+        <span class="position-absolute top-0 start-75 badge rounded-pill bg-danger"
+              style="font-size:.65rem;padding:2px 5px;min-width:16px;text-align:center;">
+            <?= $notif_count > 99 ? '99+' : $notif_count ?>
+        </span>
+    <?php endif; ?>
+</a>
+<?php endif; ?>
+
+
+
             <!-- ── Account & Lists hover popup ── -->
             <div class="account-wrapper">
                 <button class="account-trigger">
@@ -388,7 +420,7 @@ $first_name = isset($_SESSION['name']) ? htmlspecialchars(explode(' ', $_SESSION
                         <div>
                             <div class="popup-col-title">Your Account</div>
                             <a href="../user/profile.php" class="popup-link">Profile</a>
-                            <a href="../user/orders.php"  class="popup-link">My Orders</a>
+                            
                         </div>
                         <hr class="popup-divider">
                         <a href="../auth/logout.php" class="popup-logout">
@@ -403,12 +435,15 @@ $first_name = isset($_SESSION['name']) ? htmlspecialchars(explode(' ', $_SESSION
         <div class="popup-col-title">Seller</div>
         <a href="../seller/dashboard.php" class="popup-link">Dashboard</a>
         <a href="../seller/manage_products.php" class="popup-link">My Products</a>
+        <a href="../seller/orders.php" class="popup-link">Shop Orders</a>
         <a href="../seller/profile.php" class="popup-link">Shop Settings</a>
     </div>
     <div>
         <div class="popup-col-title">Your Account</div>
-        <a href="../seller/profile.php" class="popup-link">Profile</a>
-        <a href="../user/orders.php" class="popup-link">My Orders</a>
+        <a href="../user/profile.php" class="popup-link">Profile</a>
+        
+        
+        
     </div>
     <hr class="popup-divider">
     <a href="../auth/logout.php" class="popup-logout">
@@ -423,6 +458,7 @@ $first_name = isset($_SESSION['name']) ? htmlspecialchars(explode(' ', $_SESSION
         <div class="popup-col-title">Category Manager</div>
         <a href="../category_manager/dashboard.php" class="popup-link">Dashboard</a>
         <a href="../category_manager/manage_categories.php" class="popup-link">Manage Categories</a>
+        <a href="../category_manager/manage_products.php" class="popup-link">Manage Products</a>
     </div>
     <div>
         <div class="popup-col-title">Your Account</div>
@@ -445,7 +481,7 @@ $first_name = isset($_SESSION['name']) ? htmlspecialchars(explode(' ', $_SESSION
                             <div class="popup-col-title">Your Account</div>
                             <a href="../user/profile.php"  class="popup-link">Profile</a>
                             <a href="../user/orders.php"   class="popup-link">My Orders</a>
-                            <a href="../user/wishlist.php" class="popup-link">Wishlist</a>
+                            
                         </div>
                         <hr class="popup-divider">
                         <a href="../auth/logout.php" class="popup-logout">
@@ -458,7 +494,7 @@ $first_name = isset($_SESSION['name']) ? htmlspecialchars(explode(' ', $_SESSION
             </div><!-- /.account-wrapper -->
 
             <!-- Wishlist (non-admins, non-sellers only) -->
-            <?php if (!$is_admin && !$is_seller): ?>
+            <?php if ($is_regular_user): ?>
             <a href="../user/wishlist.php" class="position-relative text-white text-decoration-none d-flex align-items-end gap-1">
                 <i class="fas fa-heart fa-2x"></i>
                 <span style="font-size:.85rem;font-weight:700">Wishlist</span>
@@ -466,7 +502,7 @@ $first_name = isset($_SESSION['name']) ? htmlspecialchars(explode(' ', $_SESSION
             <?php endif; ?>
 
             <!-- Cart (non-admins, non-sellers only) -->
-            <?php if (!$is_admin && !$is_seller): ?>
+            <?php if ($is_regular_user): ?>
             <a href="../user/cart.php" class="position-relative text-white text-decoration-none d-flex align-items-end gap-1">
                 <i class="fas fa-shopping-cart fa-2x"></i>
                 <?php if ($cart_count > 0): ?>
@@ -482,7 +518,7 @@ $first_name = isset($_SESSION['name']) ? htmlspecialchars(explode(' ', $_SESSION
 </nav>
 
 <!-- ══ FILTER BAR — hidden for admins, sellers and pages with $hide_filter ═ -->
-<?php if (!$is_admin && !$is_seller && empty($hide_filter)): ?>
+<?php if (!$is_admin && !$is_seller && !$is_category_manager && empty($hide_filter)): ?>
 <div class="navbar-filter">
     <div class="container-fluid px-4">
         <form class="filter-form" method="GET" action="../user/home.php">
@@ -561,18 +597,19 @@ $first_name = isset($_SESSION['name']) ? htmlspecialchars(explode(' ', $_SESSION
             <a href="../user/profile.php" class="menu-item">
                 <span><i class="fas fa-user me-2 text-muted"></i>Profile</span>
             </a>
+            <?php if ($is_regular_user): ?>
             <a href="../user/orders.php" class="menu-item">
                 <span><i class="fas fa-box me-2 text-muted"></i>My Orders</span>
             </a>
-            <?php if (!$is_admin): ?>
+           
             <a href="../user/wishlist.php" class="menu-item">
                 <span><i class="fas fa-heart me-2 text-muted"></i>Wishlist</span>
             </a>
             <?php endif; ?>
-            <?php if ($is_admin): ?>
-            <a href="../admin/dashboard.php" class="menu-item" style="color:#ff9900;font-weight:600">
-                <span><i class="fas fa-gauge-high me-2"></i>Admin Panel</span>
-                <i class="fas fa-chevron-right chevron"></i>
+            <?php if ($is_seller): ?>
+            <a href="../seller/profile.php" class="menu-item">
+                <span><i class=" fas fa-store me-2"></i>Shop Profile</span>
+                
             </a>
             <?php endif; ?>
             <?php else: ?>

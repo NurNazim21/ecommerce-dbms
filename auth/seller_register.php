@@ -26,12 +26,27 @@ if (isset($_POST['register_seller'])) {
         } else {
             $hashed = password_hash($password, PASSWORD_DEFAULT);
             $sql = "INSERT INTO users (name, email, password, phone, city, role, seller_status, shop_name, seller_address, seller_request_at) 
-                    VALUES ('$name', '$email', '$hashed', '$phone', '$city', 'seller', 'pending', '$shop_name', '$seller_address', NOW())";
-            if ($conn->query($sql)) {
-                $success = "Seller registration submitted! Your account is pending admin approval.";
-            } else {
-                $error = "Registration failed: " . $conn->error;
-            }
+        VALUES ('$name', '$email', '$hashed', '$phone', '$city', 'seller', 'pending', '$shop_name', '$seller_address', NOW())";
+if ($conn->query($sql)) {
+    $new_user_id = $conn->insert_id;
+
+    // Generate a unique shop slug from shop name
+    $shop_slug = strtolower(trim(preg_replace('/[^A-Za-z0-9]+/', '-', $shop_name), '-'));
+    $shop_slug = mysqli_real_escape_string($conn, $shop_slug);
+    $seller_address_escaped = $seller_address; // already escaped above
+
+    // Create seller_profiles row immediately — required for sp_create_vendor_orders
+    $conn->query("
+        INSERT INTO seller_profiles 
+            (user_id, shop_name, shop_slug, seller_address, commission_rate, verification_status)
+        VALUES 
+            ($new_user_id, '$shop_name', '$shop_slug', '$seller_address_escaped', 10.00, 'pending')
+    ");
+
+    $success = "Seller registration submitted! Your account is pending admin approval.";
+} else {
+    $error = "Registration failed: " . $conn->error;
+}
         }
     }
 }
