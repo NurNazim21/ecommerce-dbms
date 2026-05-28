@@ -44,7 +44,23 @@ if ($conn->query($sql)) {
     ");
 
     $success = "Seller registration submitted! Your account is pending admin approval.";
-} else {
+
+    // ── Notify ALL admins of the new seller application ──────────────
+    $safe_name      = $conn->real_escape_string($name);
+    $safe_shop      = $conn->real_escape_string($shop_name);
+    $adm_title      = "New Seller Application — $safe_shop";
+    $adm_msg        = "$safe_name has applied to become a seller (Shop: $safe_shop). Review and approve or reject.";
+    $adm_link       = "/admin/manage_sellers.php";
+    $adm_res = $conn->query("SELECT id FROM users WHERE role = 'admin'");
+    while ($adm = $adm_res->fetch_assoc()) {
+        $adm_uid = $adm['id'];
+        $conn->query("
+            INSERT INTO notifications (user_id, type, title, message, link)
+            VALUES ($adm_uid, 'new_seller_request',
+                    '$adm_title', '$adm_msg', '$adm_link')
+        ");
+    }
+    } else {
     $error = "Registration failed: " . $conn->error;
 }
         }

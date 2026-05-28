@@ -99,6 +99,38 @@ if (isset($_POST['save_product'])) {
         }
 
         if ($conn->query($sql)) {
+
+            // ── Notify admins + category managers for NEW submissions only ──
+            if ($id === 0) {
+                $safe_name = $conn->real_escape_string($name);
+                $notif_title = "New Product Awaiting Approval";
+                $notif_msg   = "\"$safe_name\" submitted by seller #{$user_id} needs review.";
+
+                // Notify all admins
+                $recv = $conn->query("
+                    SELECT id FROM users
+                    WHERE role = 'admin'
+                ");
+                while ($r = $recv->fetch_assoc()) {
+                    $rid  = $r['id'];
+                    $link = $conn->real_escape_string("/admin/manage_products.php");
+                    $conn->query("INSERT INTO notifications (user_id, type, title, message, link)
+                                  VALUES ($rid, 'new_product_pending', '$notif_title', '$notif_msg', '$link')");
+                }
+
+                // Notify all approved category managers
+                $recv = $conn->query("
+                    SELECT id FROM users
+                    WHERE role = 'category_manager' AND seller_status = 'approved'
+                ");
+                while ($r = $recv->fetch_assoc()) {
+                    $rid  = $r['id'];
+                    $link = $conn->real_escape_string("/category_manager/manage_products.php");
+                    $conn->query("INSERT INTO notifications (user_id, type, title, message, link)
+                                  VALUES ($rid, 'new_product_pending', '$notif_title', '$notif_msg', '$link')");
+                }
+            }
+
             header("Location: manage_products.php?success=1");
             exit();
         } else {

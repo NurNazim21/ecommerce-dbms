@@ -34,6 +34,21 @@ if (isset($_POST['register_category_manager'])) {
 
             if ($conn->query($sql)) {
                 $success = "Application submitted! Your account will be activated once an admin approves it.";
+
+                // ── Notify ALL admins of the new CM application ──────────
+                $safe_name = $conn->real_escape_string($name);
+                $cm_title  = "New Category Manager Application";
+                $cm_msg    = "$safe_name has applied to become a category manager. Review and approve or reject.";
+                $cm_link   = "/admin/manage_category_managers.php";
+                $adm_res   = $conn->query("SELECT id FROM users WHERE role = 'admin'");
+                while ($adm = $adm_res->fetch_assoc()) {
+                    $adm_uid = $adm['id'];
+                    $conn->query("
+                        INSERT INTO notifications (user_id, type, title, message, link)
+                        VALUES ($adm_uid, 'new_cm_request', '$cm_title', '$cm_msg', '$cm_link')
+                    ");
+                }
+
             } else {
                 $error = "Registration failed: " . $conn->error;
             }

@@ -427,18 +427,34 @@ if (isset($_POST['place_order'])) {
             
             
 
-            // ── NEW: Send in-app notification to buyer ────────────────────
+            // ── Send in-app notification to buyer ────────────────────────
             $stmt = $conn->prepare("
                 INSERT INTO notifications
                     (user_id, type, title, message, link)
-                VALUES (?, 'order_placed', 'Order Placed Successfully',
-                        ?, ?)
+                VALUES (?, 'order_placed', 'Order Placed Successfully', ?, ?)
             ");
             $notif_msg  = "Your order #$order_id has been placed. Total: ৳" . number_format($final_total_f);
             $notif_link = "/user/order_details.php?id=$order_id";
             $stmt->bind_param("iss", $user_id, $notif_msg, $notif_link);
             $stmt->execute();
             $stmt->close();
+
+            // ── Notify ALL admins of the new order ───────────────────────
+            $admin_notif_title = "New Order #$order_id — ৳" . number_format($final_total_f);
+            $admin_notif_msg   = "Order placed by " . htmlspecialchars($ship_name, ENT_QUOTES) .
+                                 " ({$ship_city}). " . count($items) . " item(s), paid via " . $payment_label . ".";
+            $admin_notif_link  = "/admin/order_details.php?id=$order_id";
+
+            $adm_res = $conn->query("SELECT id FROM users WHERE role = 'admin'");
+            while ($adm = $adm_res->fetch_assoc()) {
+                $stmt = $conn->prepare("
+                    INSERT INTO notifications (user_id, type, title, message, link)
+                    VALUES (?, 'new_order', ?, ?, ?)
+                ");
+                $stmt->bind_param("isss", $adm['id'], $admin_notif_title, $admin_notif_msg, $admin_notif_link);
+                $stmt->execute();
+                $stmt->close();
+            }
 
             // ── Remove checked-out items from cart ────────────────────────
             foreach ($selected_ids as $pid) {

@@ -365,7 +365,7 @@ $first_name = isset($_SESSION['name']) ? htmlspecialchars(explode(' ', $_SESSION
  
 <!-- ── UPGRADE: Notification bell (all logged-in users) ─────────────────── -->
 <?php if (isset($_SESSION['user_id'])): ?>
-<a href="<?= $is_admin ? '../admin/notifications.php' : ($is_seller ? '../seller/notifications.php' : '../user/notifications.php') ?>"
+<a href="<?= $is_admin ? '../admin/notifications.php' : ($is_seller ? '../seller/notifications.php' : ($is_category_manager ? '../category_manager/notifications.php' : '../user/notifications.php')) ?>"
    class="position-relative text-white text-decoration-none d-flex align-items-center"
    style="padding:4px 2px;"
    title="Notifications">
